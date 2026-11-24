@@ -1,0 +1,28 @@
+server:
+  port: 8084
+  shutdown: graceful
+
+spring:
+  application:
+    name: bank-simulator
+
+app:
+  api-key: ${BANK_API_KEY:change-me-bank-api-key}
+  webhook-url: ${WEBHOOK_URL:http://localhost:8082/internal/webhooks/bank}
+  webhook-secret: ${BANK_WEBHOOK_SECRET:change-me-webhook-secret}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /docs/bank/v3/api-docs
+  swagger-ui:
+    path: /docs/bank/swagger-ui.html

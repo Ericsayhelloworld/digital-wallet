@@ -1,0 +1,34 @@
+# Edge proxy (Section 6.1): the browser talks only to this server.
+server {
+    listen 8080;
+    root /usr/share/nginx/html;
+
+    proxy_set_header Host              $http_host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header traceparent       $http_traceparent;
+
+    # Static frontend
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # APIs
+    location /api/v1/auth/                { proxy_pass ${AUTH_URL}; }
+    location = /api/v1/notifications      { proxy_pass ${NOTIFICATION_URL}; }
+    location /api/v1/notifications/       { proxy_pass ${NOTIFICATION_URL}; }
+    location /api/v1/                     { proxy_pass ${WALLET_URL}; }
+    location /bank/admin/                 { proxy_pass ${BANK_URL}; }
+
+    # OpenAPI documents and Swagger UI (API-8)
+    location /docs/auth/                  { proxy_pass ${AUTH_URL}; }
+    location /docs/wallet/                { proxy_pass ${WALLET_URL}; }
+    location /docs/notifications/         { proxy_pass ${NOTIFICATION_URL}; }
+    location /docs/bank/                  { proxy_pass ${BANK_URL}; }
+
+    # Only reachable inside the service network
+    location /internal/                   { return 404; }
+    location /bank/v1/                    { return 404; }
+    location /actuator/                   { return 404; }
+    location /.well-known/                { return 404; }
+}

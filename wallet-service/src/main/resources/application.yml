@@ -1,0 +1,68 @@
+server:
+  port: 8082
+  shutdown: graceful
+
+spring:
+  application:
+    name: wallet-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/wallet_db}
+    username: ${DB_USER:wallet_user}
+    password: ${DB_PASSWORD:change-me-wallet}
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
+  jackson:
+    deserialization:
+      accept-float-as-int: false   # SEC-5: 12.5 is not a valid amount
+    mapper:
+      allow-coercion-of-scalars: false   # "100" (a string) is not a valid amount
+
+app:
+  kafka:
+    topic: wallet.events
+    relay-interval-ms: 500
+  jwt:
+    jwks-uri: ${JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    issuer: ${JWT_ISSUER:http://auth-service:8081}
+  bank:
+    base-url: ${BANK_URL:http://localhost:8084}
+    api-key: ${BANK_API_KEY:change-me-bank-api-key}
+    webhook-secret: ${BANK_WEBHOOK_SECRET:change-me-webhook-secret}
+    timeout-ms: 3000                # RES-3
+  reconciliation:
+    pending-after-seconds: 30       # RES-7
+    interval-ms: 10000
+  limits:                       # MNY-4: limits come from configuration
+    min-amount: ${MIN_AMOUNT:1}
+    max-amount: ${MAX_AMOUNT:200000}
+    daily-limit: ${DAILY_LIMIT:500000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+springdoc:
+  api-docs:
+    path: /docs/wallet/v3/api-docs
+  swagger-ui:
+    path: /docs/wallet/swagger-ui.html

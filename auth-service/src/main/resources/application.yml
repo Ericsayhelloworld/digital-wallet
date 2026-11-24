@@ -1,0 +1,45 @@
+server:
+  port: 8081
+  shutdown: graceful
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    # Defaults are for running locally from IntelliJ. In Docker these come from .env.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/auth_db}
+    username: ${DB_USER:auth_user}
+    password: ${DB_PASSWORD:change-me-auth}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate   # OPS-2: only Flyway creates tables
+  flyway:
+    enabled: true
+
+app:
+  jwt:
+    issuer: ${JWT_ISSUER:http://auth-service:8081}
+    ttl-minutes: 30
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:change-me-admin-password}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true          # /actuator/health/liveness and /readiness (OPS-3)
+      group:
+        readiness:
+          include: readinessState,db
+
+springdoc:
+  api-docs:
+    path: /docs/auth/v3/api-docs
+  swagger-ui:
+    path: /docs/auth/swagger-ui.html

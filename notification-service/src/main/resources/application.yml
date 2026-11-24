@@ -1,0 +1,53 @@
+server:
+  port: 8083
+  shutdown: graceful
+
+spring:
+  application:
+    name: notification-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/notification_db}
+    username: ${DB_USER:notification_user}
+    password: ${DB_PASSWORD:change-me-notification}
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest          # a new consumer reads the topic from the start
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:                              # only for the dead-letter topic
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: record                     # commit the offset after each processed message
+
+app:
+  jwt:
+    jwks-uri: ${JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    issuer: ${JWT_ISSUER:http://auth-service:8081}
+  kafka:
+    topic: wallet.events
+    dead-letter-topic: wallet.events.dlt
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+springdoc:
+  api-docs:
+    path: /docs/notifications/v3/api-docs
+  swagger-ui:
+    path: /docs/notifications/swagger-ui.html
