@@ -66,3 +66,14 @@ springdoc:
     path: /docs/wallet/v3/api-docs
   swagger-ui:
     path: /docs/wallet/swagger-ui.html
+    persist-authorization: true
+    urls-primary-name: wallet
+    urls:
+      - name: auth
+        url: /docs/auth/v3/api-docs
+      - name: wallet
+        url: /docs/wallet/v3/api-docs
+      - name: notifications
+        url: /docs/notifications/v3/api-docs
+      - name: bank
+        url: /docs/bank/v3/api-docs

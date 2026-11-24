@@ -51,3 +51,14 @@ springdoc:
     path: /docs/notifications/v3/api-docs
   swagger-ui:
     path: /docs/notifications/swagger-ui.html
+    persist-authorization: true
+    urls-primary-name: notifications
+    urls:
+      - name: auth
+        url: /docs/auth/v3/api-docs
+      - name: wallet
+        url: /docs/wallet/v3/api-docs
+      - name: notifications
+        url: /docs/notifications/v3/api-docs
+      - name: bank
+        url: /docs/bank/v3/api-docs
