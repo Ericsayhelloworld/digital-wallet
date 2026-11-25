@@ -4,6 +4,7 @@ import com.example.wallet.common.CurrentUser;
 import com.example.wallet.common.Ids;
 import com.example.wallet.common.Pagination;
 import com.example.wallet.common.Pagination.Page;
+import com.example.wallet.common.Retry;
 import com.example.wallet.common.Time;
 import com.example.wallet.config.Limits;
 import com.example.wallet.error.ApiException;
@@ -107,7 +108,7 @@ public class OperationService {
      * from several copies of it, or from the reconciliation job.
      */
     public void applyResult(OperationKind kind, UUID id, String bankStatus, String reason) {
-        tx.executeWithoutResult(status -> {
+        Retry.onConflictRun(() -> tx.executeWithoutResult(status -> {
             Operation op = operations.findByIdForUpdate(kind, id).orElseThrow(ApiException::notFound);
             if (!"PENDING".equals(op.status())) {
                 return; // RES-9: already final, nothing changes
@@ -143,7 +144,7 @@ public class OperationService {
             String eventType = (kind == OperationKind.DEPOSIT ? "deposit." : "withdrawal.") + bankStatus.toLowerCase();
             outbox.add(eventType, id, eventPayload(kind, id, wallet, x, failureReason, true));
             log.info("{} {} {}{}", kind, id, bankStatus, failureReason == null ? "" : " (" + failureReason + ")");
-        });
+        }));
     }
 
     /** API-4: an operation of another user is answered exactly like one that does not exist. */

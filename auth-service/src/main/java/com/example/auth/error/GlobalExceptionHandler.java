@@ -12,6 +12,7 @@ import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.List;
 
@@ -26,7 +27,11 @@ public class GlobalExceptionHandler {
         if (!e.getErrors().isEmpty()) {
             problem.setProperty("errors", e.getErrors());
         }
-        return ResponseEntity.status(e.getStatus()).body(problem);
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(e.getStatus());
+        if (e.getRetryAfterSeconds() != null) {
+            response.header("Retry-After", e.getRetryAfterSeconds().toString());
+        }
+        return response.body(problem);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -46,9 +51,16 @@ public class GlobalExceptionHandler {
                 "Validation failed", "The request body is missing or is not valid JSON."));
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        ProblemDetail problem = Problems.build(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED",
+                "Validation failed", "A parameter has an invalid value.");
+        problem.setProperty("errors", List.of(new FieldProblem(e.getName(), "has an invalid value")));
+        return ResponseEntity.badRequest().body(problem);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleOther(Exception e) {
-        // Spring's own errors such as 404 (no such path) or 405 (wrong method)
         if (e instanceof ErrorResponse springError) {
             HttpStatusCode status = springError.getStatusCode();
             String code = switch (status.value()) {
@@ -59,7 +71,6 @@ public class GlobalExceptionHandler {
             return ResponseEntity.status(status)
                     .body(Problems.build(status, code, "Request failed", "The request could not be handled."));
         }
-        // API-6: no stack trace and no SQL message in the response; the log keeps the details
         log.error("Unexpected error", e);
         return ResponseEntity.internalServerError().body(Problems.build(HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR", "Internal error", "An unexpected error occurred."));

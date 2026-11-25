@@ -22,11 +22,14 @@ public class AuthService {
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokens;
+    private final LoginRateLimiter rateLimiter;
 
-    public AuthService(UserRepository users, PasswordEncoder passwordEncoder, TokenService tokens) {
+    public AuthService(UserRepository users, PasswordEncoder passwordEncoder, TokenService tokens,
+                       LoginRateLimiter rateLimiter) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
+        this.rateLimiter = rateLimiter;
     }
 
     public User register(RegisterRequest request) {
@@ -47,6 +50,7 @@ public class AuthService {
     }
 
     public LoginResponse login(LoginRequest request) {
+        rateLimiter.check(request.username()); // SEC-9: before anything else, also for unknown usernames
         Optional<User> user = users.findByUsername(request.username());
         // AUTH-6: same answer for an unknown user and a wrong password
         if (user.isEmpty() || !passwordEncoder.matches(request.password(), user.get().getPasswordHash())) {

@@ -1,6 +1,7 @@
 package com.example.wallet.wallet;
 
 import com.example.wallet.common.CurrentUser;
+import com.example.wallet.common.Retry;
 import com.example.wallet.common.Time;
 import com.example.wallet.config.Limits;
 import com.example.wallet.error.ApiException;
@@ -40,8 +41,8 @@ public class WalletService {
         }
         UUID id = UUID.randomUUID();
         try {
-            tx.executeWithoutResult(status ->
-                    wallets.insert(id, user.id(), user.username(), user.displayName(), Time.now()));
+            Retry.onConflictRun(() -> tx.executeWithoutResult(status ->
+                    wallets.insert(id, user.id(), user.username(), user.displayName(), Time.now())));
             return new OpenResult(wallets.findById(id).orElseThrow(), true);
         } catch (DuplicateKeyException e) {
             // two calls at the same moment: the database constraint lets only one of them create the wallet

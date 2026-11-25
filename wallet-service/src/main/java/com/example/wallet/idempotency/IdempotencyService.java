@@ -1,5 +1,6 @@
 package com.example.wallet.idempotency;
 
+import com.example.wallet.common.Retry;
 import com.example.wallet.common.Time;
 import com.example.wallet.error.ApiException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -59,7 +60,7 @@ public class IdempotencyService {
         }
 
         try {
-            return tx.execute(status -> {
+            return Retry.onConflict(() -> tx.execute(status -> {
                 // Claim the key first. A second request with the same key now waits on this row
                 // until we commit (then it replays our response) or roll back (then it runs normally).
                 jdbc.sql("""
@@ -90,7 +91,7 @@ public class IdempotencyService {
                         .param("key", key)
                         .update();
                 return build(response.status(), body, response.location(), false);
-            });
+            }));
         } catch (DuplicateKeyException e) {
             // Another request with the same key committed first (IDM-6)
             return find(userId, endpoint, key)
