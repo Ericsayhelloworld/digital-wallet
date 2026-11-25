@@ -1,0 +1,8 @@
+# OPS-7: the dashboard is provisioned from files in the repository
+apiVersion: 1
+providers:
+  - name: digital-wallet
+    folder: ""
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

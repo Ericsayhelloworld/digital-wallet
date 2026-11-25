@@ -24,7 +24,7 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/docs/**", "/actuator/health", "/actuator/health/**", "/error").permitAll()
+                .requestMatchers("/docs/**", "/actuator/health", "/actuator/health/**", "/actuator/prometheus", "/error").permitAll()
                 // bank webhooks are authenticated by their signature, not by a JWT (next step)
                 .requestMatchers("/internal/**").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

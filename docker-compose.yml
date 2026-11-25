@@ -1,12 +1,22 @@
 # Digital Wallet Platform. Start everything with:  docker compose up --build   (OPS-1)
-# Only "web" is published for the browser. PostgreSQL and Kafka are also published
-# for local development tools; the services themselves are reachable only inside this network.
+# Published on the host: web (the application), Grafana, Prometheus and Zipkin (OPS: own host ports),
+# and PostgreSQL and Kafka for local development tools. The services themselves are reachable only
+# inside this network.
 
 x-spring-health: &spring-health
   interval: 10s
   timeout: 5s
   retries: 30
   start_period: 20s
+
+# OPS-4 JSON logs, OPS-5 Prometheus endpoint, OPS-6 tracing to Zipkin, for every Spring Boot service
+x-observability: &observability
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+  SPRING_KAFKA_TEMPLATE_OBSERVATIONENABLED: "true"
+  SPRING_KAFKA_LISTENER_OBSERVATIONENABLED: "true"
 
 services:
   postgres:
@@ -52,9 +62,53 @@ services:
       timeout: 10s
       retries: 20
 
+  # ---------- observability (Section 3: Prometheus, Grafana and a tracing backend) ----------
+
+  zipkin:
+    image: openzipkin/zipkin:3.4
+    ports:
+      - "9411:9411"
+    # the image brings its own health check
+
+  prometheus:
+    image: prom/prometheus:v2.53.2
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/wallet.json
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- the services ----------
+
   auth-service:
     build: ./auth-service
     environment:
+      <<: *observability
       DB_URL: jdbc:postgresql://postgres:5432/auth_db
       DB_USER: auth_user
       DB_PASSWORD: ${AUTH_DB_PASSWORD}
@@ -71,6 +125,7 @@ services:
   bank-simulator:
     build: ./bank-simulator
     environment:
+      <<: *observability
       BANK_API_KEY: ${BANK_API_KEY}
       BANK_WEBHOOK_SECRET: ${BANK_WEBHOOK_SECRET}
       WEBHOOK_URL: http://wallet-service:8082/internal/webhooks/bank
@@ -81,6 +136,7 @@ services:
   wallet-service:
     build: ./wallet-service
     environment:
+      <<: *observability
       DB_URL: jdbc:postgresql://postgres:5432/wallet_db
       DB_USER: wallet_user
       DB_PASSWORD: ${WALLET_DB_PASSWORD}
@@ -106,6 +162,7 @@ services:
   notification-service:
     build: ./notification-service
     environment:
+      <<: *observability
       DB_URL: jdbc:postgresql://postgres:5432/notification_db
       DB_USER: notification_user
       DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD}

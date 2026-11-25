@@ -5,6 +5,8 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,7 +40,7 @@ public class BankClient {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
 
-    public BankClient(RestClient.Builder builder,
+    public BankClient(RestClient.Builder builder, MeterRegistry registry,
                       @Value("${app.bank.base-url}") String baseUrl,
                       @Value("${app.bank.api-key}") String apiKey,
                       @Value("${app.bank.timeout-ms}") int timeoutMs,
@@ -68,8 +70,21 @@ public class BankClient {
                 .automaticTransitionFromOpenToHalfOpenEnabled(true)
                 .recordException(BankClient::outcomeUnknown)
                 .build());
-        this.circuitBreaker.getEventPublisher().onStateTransition(event ->
-                log.warn("Bank circuit breaker: {}", event.getStateTransition()));
+        this.circuitBreaker.getEventPublisher()
+                .onStateTransition(event -> log.warn("Bank circuit breaker: {}", event.getStateTransition()))
+                // OPS-5: wallet_bank_calls_total{outcome}: every single try, counted by the circuit breaker
+                .onSuccess(event -> registry.counter("wallet.bank.calls", "outcome", "success").increment())
+                .onError(event -> registry.counter("wallet.bank.calls", "outcome", "error").increment())
+                .onCallNotPermitted(event -> registry.counter("wallet.bank.calls", "outcome", "circuit_open").increment());
+        // OPS-5: wallet_bank_circuit_state: 0 = CLOSED, 1 = OPEN, 2 = HALF_OPEN
+        Gauge.builder("wallet.bank.circuit.state", circuitBreaker, cb -> switch (cb.getState()) {
+                    case CLOSED -> 0.0;
+                    case OPEN -> 1.0;
+                    case HALF_OPEN -> 2.0;
+                    default -> 3.0;
+                })
+                .description("0 closed, 1 open, 2 half open")
+                .register(registry);
 
         // Retry: at most maxAttempts tries, waiting 200 ms, then about 400 ms, ... with +/-50% random jitter.
         // A call refused by the open circuit is not retried.

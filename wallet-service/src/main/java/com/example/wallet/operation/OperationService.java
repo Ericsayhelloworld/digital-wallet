@@ -10,6 +10,7 @@ import com.example.wallet.config.Limits;
 import com.example.wallet.error.ApiException;
 import com.example.wallet.ledger.LedgerService;
 import com.example.wallet.ledger.LedgerService.Leg;
+import com.example.wallet.metrics.WalletMetrics;
 import com.example.wallet.outbox.OutboxService;
 import com.example.wallet.wallet.Wallet;
 import com.example.wallet.wallet.WalletRepository;
@@ -45,10 +46,11 @@ public class OperationService {
     private final TransactionTemplate tx;
     private final Limits limits;
     private final OutboxService outbox;
+    private final WalletMetrics metrics;
 
     public OperationService(OperationRepository operations, WalletService walletService, WalletRepository wallets,
                             LedgerService ledger, BankSubmitter bankSubmitter, JdbcClient jdbc,
-                            TransactionTemplate tx, Limits limits, OutboxService outbox) {
+                            TransactionTemplate tx, Limits limits, OutboxService outbox, WalletMetrics metrics) {
         this.operations = operations;
         this.walletService = walletService;
         this.wallets = wallets;
@@ -58,6 +60,7 @@ public class OperationService {
         this.tx = tx;
         this.limits = limits;
         this.outbox = outbox;
+        this.metrics = metrics;
     }
 
     /** DEP-1 and DEP-2: PENDING, no ledger entry yet; the CHARGE goes to the bank after the commit. */
@@ -67,6 +70,7 @@ public class OperationService {
         UUID id = UUID.randomUUID();
         operations.insertPending(OperationKind.DEPOSIT, id, wallet.id(), amount, Time.now());
         bankSubmitter.submitAfterCommit(OperationKind.DEPOSIT, id, amount);
+        metrics.operation("deposit", "pending");
         log.info("Deposit {} PENDING: {} cents to {}", id, amount, wallet.id());
         return operations.findById(OperationKind.DEPOSIT, id).orElseThrow().toResponse();
     }
@@ -99,6 +103,7 @@ public class OperationService {
                 new Leg(PAYOUT_HOLD, "WITHDRAWAL", amount, null, null)));
         outbox.add("withdrawal.requested", id, eventPayload(OperationKind.WITHDRAWAL, id, wallet, amount, null, false));
         bankSubmitter.submitAfterCommit(OperationKind.WITHDRAWAL, id, amount);
+        metrics.operation("withdrawal", "pending");
         log.info("Withdrawal {} PENDING: {} cents from {}", id, amount, wallet.id());
         return operations.findById(OperationKind.WITHDRAWAL, id).orElseThrow().toResponse();
     }
@@ -143,6 +148,7 @@ public class OperationService {
             Wallet wallet = wallets.findById(op.walletId()).orElseThrow();
             String eventType = (kind == OperationKind.DEPOSIT ? "deposit." : "withdrawal.") + bankStatus.toLowerCase();
             outbox.add(eventType, id, eventPayload(kind, id, wallet, x, failureReason, true));
+            metrics.operation(kind.name().toLowerCase(), bankStatus.toLowerCase());
             log.info("{} {} {}{}", kind, id, bankStatus, failureReason == null ? "" : " (" + failureReason + ")");
         }));
     }

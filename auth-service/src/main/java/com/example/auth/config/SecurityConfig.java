@@ -25,7 +25,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                 .requestMatchers("/.well-known/jwks.json", "/docs/**",
-                        "/actuator/health", "/actuator/health/**", "/error").permitAll()
+                        "/actuator/health", "/actuator/health/**", "/actuator/prometheus", "/error").permitAll()
                 .requestMatchers("/api/v1/auth/me").hasRole("USER")
                 .anyRequest().authenticated())
             .oauth2ResourceServer(oauth -> oauth

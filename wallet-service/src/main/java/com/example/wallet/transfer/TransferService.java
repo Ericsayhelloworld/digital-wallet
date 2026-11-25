@@ -7,6 +7,7 @@ import com.example.wallet.config.Limits;
 import com.example.wallet.error.ApiException;
 import com.example.wallet.ledger.LedgerService;
 import com.example.wallet.ledger.LedgerService.Leg;
+import com.example.wallet.metrics.WalletMetrics;
 import com.example.wallet.outbox.OutboxService;
 import com.example.wallet.wallet.Wallet;
 import com.example.wallet.wallet.WalletRepository;
@@ -47,15 +48,17 @@ public class TransferService {
     private final LedgerService ledger;
     private final Limits limits;
     private final OutboxService outbox;
+    private final WalletMetrics metrics;
 
     public TransferService(JdbcClient jdbc, WalletService walletService, WalletRepository wallets,
-                           LedgerService ledger, Limits limits, OutboxService outbox) {
+                           LedgerService ledger, Limits limits, OutboxService outbox, WalletMetrics metrics) {
         this.jdbc = jdbc;
         this.walletService = walletService;
         this.wallets = wallets;
         this.ledger = ledger;
         this.limits = limits;
         this.outbox = outbox;
+        this.metrics = metrics;
     }
 
     /**
@@ -124,6 +127,7 @@ public class TransferService {
         payload.put("to", OutboxService.party(to));
         outbox.add("transfer.completed", id, payload);
 
+        metrics.operation("transfer", "completed");
         log.info("Transfer {} COMPLETED: {} cents from {} to {}", id, amount, from.id(), to.id());
         return new TransferResponse(id.toString(), from.id().toString(), to.id().toString(), amount, "USD",
                 request.note(), "COMPLETED", now);

@@ -1,6 +1,7 @@
 package com.example.auth.error;
 
 import org.springframework.http.HttpStatusCode;
+import org.slf4j.MDC;
 import org.springframework.http.ProblemDetail;
 
 import java.net.URI;
@@ -19,7 +20,9 @@ public final class Problems {
         problem.setType(URI.create("https://wallet.example/problems/" + code.toLowerCase().replace('_', '-')));
         problem.setTitle(title);
         problem.setProperty("code", code);
-        problem.setProperty("traceId", UUID.randomUUID().toString().replace("-", ""));
+        // the ID of the current trace (OPS-6), so an error can be found in Zipkin and in the logs
+        String traceId = MDC.get("traceId");
+        problem.setProperty("traceId", traceId != null ? traceId : UUID.randomUUID().toString().replace("-", ""));
         return problem;
     }
 

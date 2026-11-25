@@ -944,6 +944,8 @@ function renderAdmin(main) {
     ['wallet-service API', '/docs/wallet/swagger-ui.html'],
     ['notification-service API', '/docs/notifications/swagger-ui.html'],
     ['bank-simulator API', '/docs/bank/swagger-ui.html'],
+    ['Grafana dashboard', `${location.protocol}//${location.hostname}:3000`],
+    ['Zipkin traces', `${location.protocol}//${location.hostname}:9411`],
   ].map(([label, href]) => h('li', {}, h('a', { href, target: '_blank', rel: 'noopener' }, label))));
 
   main.append(
