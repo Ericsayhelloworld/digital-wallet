@@ -2,6 +2,7 @@ package com.example.wallet.operation;
 
 import com.example.wallet.bank.BankClient;
 import com.example.wallet.bank.BankTransaction;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -38,13 +39,19 @@ public class BankSubmitter {
         });
     }
 
-    /** RES-4: if the call fails we do not know the outcome; the operation stays PENDING for reconciliation. */
+    /**
+     * RES-4 / RES-5: if the bank cannot be reached even after the retries, we do not know the outcome.
+     * The operation stays PENDING, and the reconciliation job asks the bank again later (RES-3, RES-7).
+     */
     public void submit(OperationKind kind, UUID id, long amount) {
         try {
             BankTransaction result = bank.submit(id.toString(), kind.bankType, amount);
             log.info("Submitted {} {} to the bank: {} {}", kind, id, result.bankTransactionId(), result.status());
+        } catch (CallNotPermittedException e) {
+            log.warn("Bank circuit is OPEN; {} {} stays PENDING and will be submitted later", kind, id);
         } catch (Exception e) {
-            log.warn("Bank call for {} {} failed ({}); reconciliation will check it later", kind, id, e.getMessage());
+            log.warn("Bank call for {} {} failed after retries ({}); it stays PENDING for reconciliation",
+                    kind, id, e.getMessage());
         }
     }
 }
