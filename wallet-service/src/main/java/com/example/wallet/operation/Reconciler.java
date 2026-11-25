@@ -9,12 +9,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.OffsetDateTime;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * RES-7: every operation that has been PENDING for more than 30 seconds is checked with the bank.
  * If the bank knows it and it is final, the result is applied; if the bank never got it, it is sent again.
  * This also finishes operations after wallet-service was restarted (RES-8).
+ * ADM-4: an administrator can start a run at once, for every PENDING operation whatever its age.
  */
 @Component
 public class Reconciler {
@@ -26,6 +30,7 @@ public class Reconciler {
     private final BankClient bank;
     private final BankSubmitter submitter;
     private final long pendingAfterSeconds;
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public Reconciler(OperationRepository operations, OperationService service, BankClient bank,
                       BankSubmitter submitter,
@@ -39,8 +44,20 @@ public class Reconciler {
 
     @Scheduled(fixedDelayString = "${app.reconciliation.interval-ms}")
     public void run() {
+        reconcileCreatedBefore(Time.now().minusSeconds(pendingAfterSeconds));
+    }
+
+    /** ADM-4: starts a run in the background and returns at once. */
+    public void startNow() {
+        executor.submit(() -> {
+            log.info("Reconciliation started by an administrator");
+            reconcileCreatedBefore(Time.now().plusSeconds(1));
+        });
+    }
+
+    private void reconcileCreatedBefore(OffsetDateTime before) {
         for (OperationKind kind : OperationKind.values()) {
-            for (Operation op : operations.findPendingCreatedBefore(kind, Time.now().minusSeconds(pendingAfterSeconds))) {
+            for (Operation op : operations.findPendingCreatedBefore(kind, before)) {
                 reconcile(op);
             }
         }

@@ -4,7 +4,11 @@
 // State
 // UI-7: the access token is kept in sessionStorage (gone when the tab closes)
 // =====================================================================
-const state = { token: sessionStorage.getItem('accessToken'), me: null };
+const state = {
+  token: sessionStorage.getItem('accessToken'),
+  me: null,
+  lastMoney: JSON.parse(sessionStorage.getItem('lastMoney') || 'null'),
+};
 const app = document.getElementById('app');
 const badge = document.createElement('span');
 badge.className = 'badge';
@@ -103,6 +107,8 @@ async function api(method, path, body, idempotencyKey) {
  */
 async function moneyRequest(path, body) {
   const key = crypto.randomUUID();
+  state.lastMoney = { path, body, key }; // for the Diagnostics of the admin console
+  sessionStorage.setItem('lastMoney', JSON.stringify(state.lastMoney));
   for (let attempt = 1; ; attempt++) {
     try {
       return await api('POST', path, body, key);
@@ -165,6 +171,8 @@ function logout() {
   state.token = null;
   state.me = null;
   sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('lastMoney');
+  state.lastMoney = null;
   clearInterval(badgeTimer);
   badgeTimer = null;
   go('login');
@@ -216,7 +224,12 @@ const PAGES = {
   withdraw: main => renderMove(main, 'withdraw'),
   activity: renderActivity,
   notifications: renderNotifications,
+  admin: renderAdmin,
 };
+
+function isAdmin() {
+  return Boolean(state.me && state.me.roles && state.me.roles.includes('ADMIN'));
+}
 
 function go(route) {
   if (location.hash === `#/${route}`) render();
@@ -237,12 +250,14 @@ async function render() {
     if (!state.me) {
       try { state.me = await api('GET', '/api/v1/auth/me'); } catch (e) { return; }
     }
+    if (route === 'admin' && !isAdmin()) return go('home'); // UI-3: only administrators see it
     startBadge();
+    const nav = isAdmin() ? NAV.concat([['admin', 'Admin']]) : NAV;
     app.replaceChildren(h('div', { class: 'shell' },
       h('aside', { class: 'side' },
         h('div', { class: 'brand' }, 'Wallet'),
         h('nav', { class: 'nav', 'aria-label': 'Main' },
-          NAV.map(([r, label]) => h('a', {
+          nav.map(([r, label]) => h('a', {
             href: `#/${r}`,
             class: r === route ? 'active' : null,
             'aria-current': r === route ? 'page' : null,
@@ -337,7 +352,8 @@ async function renderHome(main) {
       box.replaceChildren(walletCard(wallet));
     } catch (err) {
       if (err.code === 'WALLET_NOT_FOUND') {
-        if (!showingOpen) box.replaceChildren(openWalletPanel(load));
+        stopPoll();
+        if (!showingOpen) box.replaceChildren(openWalletPanel(async () => { await load(); poll(load, 3000); }));
         showingOpen = true;
       } else {
         box.replaceChildren(notice('error', messageFor(err)));
@@ -731,6 +747,219 @@ function renderNotifications(main) {
     message, list, more);
   refresh();
   poll(refresh, 3000); // UI-5: new notifications appear within 5 seconds
+}
+
+
+// =====================================================================
+// Administration console (UI-3): only for the role ADMIN
+// =====================================================================
+const BANK_FIELDS = [
+  ['down', 'Down', 'checkbox'],
+  ['responseDelayMs', 'Response delay (ms)', 'number'],
+  ['hangRate', 'Hang rate (0 to 1)', 'number'],
+  ['settleDelayMs', 'Settle delay (ms)', 'number'],
+  ['declineRate', 'Decline rate (0 to 1)', 'number'],
+  ['webhookCopies', 'Webhook copies', 'number'],
+];
+
+const BANK_PRESETS = [
+  ['Normal', {}],
+  ['Slow', { responseDelayMs: 2000, settleDelayMs: 5000 }],
+  ['Down', { down: true }],
+  ['Hang', { hangRate: 1, webhookCopies: 0 }],
+  ['Decline', { declineRate: 1 }],
+  ['Duplicate webhooks', { webhookCopies: 3 }],
+  ['No webhooks', { webhookCopies: 0 }],
+];
+
+function stat(label, value) {
+  return h('div', { class: 'stat' }, h('div', { class: 'k' }, label), h('div', { class: 'v' }, String(value)));
+}
+
+/** For Diagnostics: a POST that returns the status code and the Idempotent-Replayed header. */
+async function rawMoneyPost(request) {
+  try {
+    const response = await fetch(request.path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${state.token}`,
+        'Idempotency-Key': request.key,
+      },
+      body: JSON.stringify(request.body),
+    });
+    return { status: response.status, replayed: response.headers.get('Idempotent-Replayed') === 'true' };
+  } catch (e) {
+    return { status: 'network error', replayed: false };
+  }
+}
+
+function renderAdmin(main) {
+  main.classList.add('page-wide');
+  main.append(h('h1', {}, 'Administration'));
+
+  // ---------- Status (ADM-2), refreshed every 2 seconds ----------
+  const statusBox = h('div', { class: 'stats' });
+  const reconcileMessage = h('div', { style: 'margin-top:0.75rem' });
+  const reconcileButton = h('button', { class: 'btn' }, 'Run reconciliation now');
+  reconcileButton.addEventListener('click', async () => {
+    reconcileButton.disabled = true;
+    try {
+      await api('POST', '/api/v1/admin/reconciliation');
+      reconcileMessage.replaceChildren(notice('ok', 'Reconciliation started for every pending operation.'));
+    } catch (err) {
+      reconcileMessage.replaceChildren(notice('error', messageFor(err)));
+    } finally {
+      reconcileButton.disabled = false;
+    }
+  });
+  const loadStatus = async () => {
+    try {
+      const s = await api('GET', '/api/v1/admin/status');
+      statusBox.replaceChildren(
+        stat('Pending deposits', s.pendingDeposits),
+        stat('Pending withdrawals', s.pendingWithdrawals),
+        stat('Oldest pending', `${s.oldestPendingSeconds} s`),
+        stat('Unsent events', s.outboxUnsent),
+        stat('Oldest unsent event', `${s.outboxOldestSeconds} s`),
+        stat('Bank circuit', s.bankCircuit));
+    } catch (err) {
+      statusBox.replaceChildren(notice('error', messageFor(err)));
+    }
+  };
+
+  // ---------- Integrity (ADM-1) ----------
+  const integrityBox = h('div', { style: 'margin-top:0.75rem' });
+  const integrityButton = h('button', { class: 'btn btn-primary' }, 'Run integrity checks');
+  integrityButton.addEventListener('click', async () => {
+    integrityButton.disabled = true;
+    try {
+      const r = await api('GET', '/api/v1/admin/integrity');
+      integrityBox.replaceChildren(
+        notice(r.ok ? 'ok' : 'error', `${r.ok ? 'All checks passed' : 'Some checks failed'} at ${when(r.checkedAt)}.`),
+        h('ul', { class: 'list', style: 'margin-top:0.75rem' }, r.checks.map(c => h('li', {},
+          h('div', {}, h('div', { class: 'title' }, c.id), h('div', { class: 'sub' }, c.detail)),
+          h('div', { class: 'right' }, h('span', { class: `status status-${c.ok ? 'SUCCEEDED' : 'FAILED'}` }, c.ok ? 'OK' : 'Failed'))))),
+        h('p', { class: 'muted', style: 'margin-top:0.75rem' },
+          `Totals: wallets ${fmt(r.totals.wallets)}, payout hold ${fmt(r.totals.payoutHold)}, external bank ${fmt(r.totals.externalBank)}.`));
+    } catch (err) {
+      integrityBox.replaceChildren(notice('error', messageFor(err)));
+    } finally {
+      integrityButton.disabled = false;
+    }
+  });
+
+  // ---------- Wallets (ADM-3), refreshed every 2 seconds ----------
+  const walletList = h('ul', { class: 'list' });
+  const loadWallets = async () => {
+    try {
+      const page = await api('GET', '/api/v1/admin/wallets?limit=100');
+      if (!page.items.length) {
+        walletList.replaceChildren(h('li', { class: 'empty' }, 'No wallets yet.'));
+        return;
+      }
+      walletList.replaceChildren(...page.items.map(w => h('li', {},
+        h('div', {},
+          h('div', { class: 'title' }, w.displayName, ' ', h('span', { class: 'muted' }, `@${w.username}`)),
+          h('div', { class: 'sub' }, w.walletId)),
+        h('div', { class: 'right' },
+          h('div', { class: 'amount' }, fmt(w.balance)),
+          w.reserved > 0 ? h('div', { class: 'sub' }, `${fmt(w.reserved)} reserved`) : null))));
+    } catch (err) {
+      walletList.replaceChildren(h('li', {}, notice('error', messageFor(err))));
+    }
+  };
+
+  // ---------- Bank failure settings and presets ----------
+  const bankMessage = h('div', { style: 'margin-top:0.75rem' });
+  const inputs = {};
+  const fillBank = settings => {
+    for (const [key, , type] of BANK_FIELDS) {
+      if (type === 'checkbox') inputs[key].checked = Boolean(settings[key]);
+      else inputs[key].value = settings[key];
+    }
+  };
+  const applyBank = async (settings, label) => {
+    try {
+      const result = await api('PUT', '/bank/admin/config', settings);
+      fillBank(result);
+      bankMessage.replaceChildren(notice('ok', `${label || 'Settings'} applied.`));
+    } catch (err) {
+      bankMessage.replaceChildren(notice('error', messageFor(err)));
+    }
+  };
+  const bankForm = h('form', {
+    onsubmit: e => {
+      e.preventDefault();
+      const settings = {};
+      for (const [key, , type] of BANK_FIELDS) {
+        settings[key] = type === 'checkbox' ? inputs[key].checked : Number(inputs[key].value);
+      }
+      applyBank(settings);
+    },
+  },
+  h('div', { class: 'settings' }, BANK_FIELDS.map(([key, label, type]) => {
+    inputs[key] = type === 'checkbox'
+      ? h('input', { type: 'checkbox' })
+      : h('input', { type: 'number', step: 'any', min: '0' });
+    return field(label, inputs[key]);
+  })),
+  h('button', { type: 'submit', class: 'btn btn-primary', style: 'margin-top:1rem' }, 'Apply settings'));
+  const presets = h('div', { class: 'presets' }, BANK_PRESETS.map(([label, settings]) =>
+    h('button', { class: 'btn btn-small', onclick: () => applyBank(settings, label) }, label)));
+  api('GET', '/bank/admin/config').then(fillBank).catch(err => bankMessage.replaceChildren(notice('error', messageFor(err))));
+
+  // ---------- Diagnostics: idempotency in action ----------
+  const diagnosticsInfo = h('p', { class: 'muted' });
+  const diagnosticsOut = h('div', { style: 'margin-top:0.75rem' });
+  const showInfo = () => {
+    diagnosticsInfo.textContent = state.lastMoney
+      ? `Last money request: POST ${state.lastMoney.path} with Idempotency-Key ${state.lastMoney.key}`
+      : 'No money request in this session yet. Send, add or withdraw money as this user first.';
+  };
+  const showResults = results => diagnosticsOut.replaceChildren(h('ul', { class: 'list' }, results.map((r, i) =>
+    h('li', {},
+      h('div', { class: 'title' }, `Response ${i + 1}`),
+      h('div', { class: 'right' },
+        h('span', { class: 'amount' }, String(r.status)),
+        r.replayed ? h('div', { class: 'sub' }, 'Idempotent-Replayed: true') : null)))));
+  const repeatButton = h('button', { class: 'btn' }, 'Repeat the last money request with the same key');
+  repeatButton.addEventListener('click', async () => {
+    showInfo();
+    if (!state.lastMoney) return;
+    showResults([await rawMoneyPost(state.lastMoney)]);
+  });
+  const parallelButton = h('button', { class: 'btn' }, 'Send the last money request 10 times in parallel with the same key');
+  parallelButton.addEventListener('click', async () => {
+    showInfo();
+    if (!state.lastMoney) return;
+    showResults(await Promise.all(Array.from({ length: 10 }, () => rawMoneyPost(state.lastMoney))));
+  });
+  showInfo();
+
+  // ---------- Links ----------
+  const links = h('ul', { class: 'list' }, [
+    ['auth-service API', '/docs/auth/swagger-ui.html'],
+    ['wallet-service API', '/docs/wallet/swagger-ui.html'],
+    ['notification-service API', '/docs/notifications/swagger-ui.html'],
+    ['bank-simulator API', '/docs/bank/swagger-ui.html'],
+  ].map(([label, href]) => h('li', {}, h('a', { href, target: '_blank', rel: 'noopener' }, label))));
+
+  main.append(
+    h('h2', {}, 'Status'), statusBox,
+    h('div', { style: 'margin-top:0.75rem' }, reconcileButton), reconcileMessage,
+    h('h2', {}, 'Integrity'), integrityButton, integrityBox,
+    h('h2', {}, 'Wallets'), walletList,
+    h('h2', {}, 'Bank'), h('p', { class: 'muted' }, 'Presets'), presets,
+    h('p', { class: 'muted', style: 'margin-top:1rem' }, 'Current settings'), bankForm, bankMessage,
+    h('h2', {}, 'Diagnostics'), diagnosticsInfo,
+    h('div', { class: 'actions' }, repeatButton, parallelButton), diagnosticsOut,
+    h('h2', {}, 'Links'), links);
+
+  loadStatus();
+  loadWallets();
+  poll(() => { loadStatus(); loadWallets(); }, 2000);
 }
 
 // =====================================================================

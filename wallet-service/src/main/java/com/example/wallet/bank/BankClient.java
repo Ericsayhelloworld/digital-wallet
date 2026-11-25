@@ -51,4 +51,9 @@ public class BankClient {
             return Optional.empty();
         }
     }
+
+    /** ADM-2: CLOSED, OPEN or HALF_OPEN. Until the circuit breaker is added (RES-3), calls always go through. */
+    public String circuitState() {
+        return "CLOSED";
+    }
 }

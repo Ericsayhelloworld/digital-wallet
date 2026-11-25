@@ -119,3 +119,13 @@ input:focus { border-color: var(--ink); }
   .flash { animation: flash 0.6s ease-out; }
   @keyframes flash { from { box-shadow: 0 0 0 4px #8fd3b8; } to { box-shadow: 0 0 0 0 transparent; } }
 }
+
+/* ---------- administration console ---------- */
+.page.page-wide { max-width: 1040px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0.75rem; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0.75rem 1rem; }
+.stat .k { color: var(--ink-soft); font-size: 0.85rem; font-weight: 600; }
+.stat .v { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.presets { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.75rem; }
+.settings input[type="checkbox"] { width: 1.25rem; height: 1.25rem; }
