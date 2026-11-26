@@ -3,6 +3,8 @@ package com.example.notification.config;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.distribution.DistributionStatisticConfig;
+import io.micrometer.observation.ObservationPredicate;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -20,6 +22,18 @@ public class ObservabilityConfig {
                 }
                 return config;
             }
+        };
+    }
+
+    /** OPS-6: no traces for health checks and Prometheus scrapes, so Zipkin shows only real requests. */
+    @Bean
+    public ObservationPredicate noActuatorTraces() {
+        return (name, context) -> {
+            if (name.startsWith("spring.security.")) {
+                return false;
+            }
+            return !(context instanceof ServerRequestObservationContext request
+                    && request.getCarrier().getRequestURI().startsWith("/actuator"));
         };
     }
 }

@@ -927,13 +927,19 @@ function renderAdmin(main) {
   const repeatButton = h('button', { class: 'btn' }, 'Repeat the last money request with the same key');
   repeatButton.addEventListener('click', async () => {
     showInfo();
-    if (!state.lastMoney) return;
+    if (!state.lastMoney) {
+      diagnosticsOut.replaceChildren(notice('error', 'Make a money request in this tab first: Add money, Send or Withdraw, then come back here.'));
+      return;
+    }
     showResults([await rawMoneyPost(state.lastMoney)]);
   });
   const parallelButton = h('button', { class: 'btn' }, 'Send the last money request 10 times in parallel with the same key');
   parallelButton.addEventListener('click', async () => {
     showInfo();
-    if (!state.lastMoney) return;
+    if (!state.lastMoney) {
+      diagnosticsOut.replaceChildren(notice('error', 'Make a money request in this tab first: Add money, Send or Withdraw, then come back here.'));
+      return;
+    }
     showResults(await Promise.all(Array.from({ length: 10 }, () => rawMoneyPost(state.lastMoney))));
   });
   showInfo();
