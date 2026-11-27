@@ -1,0 +1,16 @@
+{
+  "name": "digital-wallet-web",
+  "private": true,
+  "version": "2.0.0",
+  "description": "React frontend of the Digital Wallet Platform (UI-1 to UI-7)",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && esbuild src/main.jsx --bundle --minify --jsx=automatic --loader:.js=jsx --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/app.js && cp index.html dist/index.html"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
